@@ -1,4 +1,4 @@
-# Custom IPTV playlist (608 channels)
+# Custom IPTV playlist (607 channels)
 
 Free, official streams (Pluto TV, Roku, Samsung TV Plus, broadcasters) for UK/IE, Spain,
 Latin America, US and international news, cartoons, anime, movies, series, documentaries,
