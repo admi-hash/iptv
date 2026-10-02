@@ -1,4 +1,4 @@
-# Custom 629-channel playlist
+# Custom 617-channel playlist
 
 Hand-picked from this repo's streams plus the Pluto TV (US/UK/ES/MX/AR), Roku and Samsung TV Plus
 line-ups: UK/IE, Spain, Latin America, US and international news, classic cartoons, anime, movies,
