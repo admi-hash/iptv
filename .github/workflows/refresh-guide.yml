@@ -1,0 +1,40 @@
+name: refresh-guide
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */4 * * *'
+  push:
+    branches: [master]
+    paths:
+      - 'custom/**'
+permissions:
+  contents: write
+concurrency:
+  group: refresh-guide
+  cancel-in-progress: true
+jobs:
+  guide:
+    if: github.repository == 'admi-hash/iptv'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: custom
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build guide
+        run: |
+          mkdir -p out
+          python3 custom/refresh_guide.py custom/channels.m3u out/guide.xml.gz
+      # The guide lives alone on an orphan branch that is force-pushed each run,
+      # so refreshes every 4 hours don't pile megabytes into the repo history.
+      - name: Publish to guide branch
+        run: |
+          cd out
+          git init -q -b guide
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add guide.xml.gz
+          git commit -q -m "guide $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" guide
