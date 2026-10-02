@@ -24,7 +24,20 @@ SOURCES = [
 ]
 WINDOW_HOURS = 36
 KEEP_TEXT = ('title', 'sub-title', 'desc')
-MAX_CATEGORIES = 2
+# Jellyfin only files a programme under Movies/Kids/News/Sports when a category matches its
+# default names exactly, so source synonyms (and Spanish labels) are mapped onto them.
+SYNONYMS = {
+    'Movie': {'movie', 'movies', 'film', 'films', 'feature', 'feature film', 'película', 'películas', 'pelicula', 'peliculas', 'cine'},
+    'Kids': {'kids', 'children', 'infantil', 'niños', 'ninos', 'kids & family', 'animación infantil'},
+    'News': {'news', 'news & information', 'noticias', 'newscast', 'informativo', 'informativos'},
+    'Sports': {'sport', 'sports', 'deportes', 'deporte'},
+}
+# Fallback by playlist group when the source gives no usable category.
+GROUP_FALLBACK = {
+    'News': 'News', 'Latin America — news': 'News',
+    'Movies': 'Movie', 'Cine en español': 'Movie',
+    'Cartoons & kids': 'Kids', 'Dibujos y anime en español': 'Kids',
+}
 
 
 def parse_time(s):
@@ -37,23 +50,42 @@ def parse_time(s):
     return (t - delta if off[0] == '+' else t + delta).replace(tzinfo=dt.timezone.utc)
 
 
-def slim(prog):
+def categories(prog, group):
+    cats = []
+    for el in prog.findall('category'):
+        c = (el.text or '').strip()
+        if c and c not in cats:
+            cats.append(c)
+    lowered = {c.lower() for c in cats}
+    for name, words in SYNONYMS.items():
+        if lowered & words and name not in cats:
+            cats.append(name)
+    if not set(cats) & set(SYNONYMS):
+        fallback = GROUP_FALLBACK.get(group, 'Series')
+        if fallback not in cats:
+            cats.append(fallback)
+    return cats
+
+
+def slim(prog, group):
     out = ET.Element('programme', {k: prog.get(k) for k in ('start', 'stop', 'channel')})
     for tag in KEEP_TEXT:
         el = prog.find(tag)
         if el is not None and (el.text or '').strip():
             ET.SubElement(out, tag).text = ' '.join(el.text.split())
-    seen = []
-    for el in prog.findall('category'):
-        c = (el.text or '').strip()
-        if c and c not in seen and len(seen) < MAX_CATEGORIES:
-            seen.append(c)
-            ET.SubElement(out, 'category').text = c
+    cats = categories(prog, group)
+    for c in cats:
+        ET.SubElement(out, 'category').text = c
     eps = {e.get('system'): (e.text or '').strip() for e in prog.findall('episode-num')}
     for system in ('xmltv_ns', 'onscreen'):
         if eps.get(system):
             ET.SubElement(out, 'episode-num', {'system': system}).text = eps[system]
             break
+    else:
+        # Jellyfin lists a programme under Shows only when it has an episode number; ".." is
+        # the XMLTV way of saying "an episode, numbering unknown".
+        if not set(cats) & set(SYNONYMS):
+            ET.SubElement(out, 'episode-num', {'system': 'xmltv_ns'}).text = '..'
     return out
 
 
@@ -61,7 +93,9 @@ def main():
     m3u = sys.argv[1] if len(sys.argv) > 1 else 'channels.m3u'
     out = sys.argv[2] if len(sys.argv) > 2 else 'guide.xml.gz'
     text = open(m3u, encoding='utf-8').read()
-    names = dict(re.findall(r'tvg-id="([^"]+)" tvg-name="([^"]*)"', text))
+    entries = re.findall(r'tvg-id="([^"]+)" tvg-name="([^"]*)"[^\n]*?group-title="([^"]*)"', text)
+    names = {cid: name for cid, name, _ in entries}
+    groups = {cid: group for cid, _, group in entries}
     now = dt.datetime.now(dt.timezone.utc)
     end = now + dt.timedelta(hours=WINDOW_HOURS)
 
@@ -85,7 +119,7 @@ def main():
                 if cid in claimed:
                     a, b = parse_time(el.get('start')), parse_time(el.get('stop'))
                     if a and b and b > now and a < end:
-                        progs.setdefault(cid, []).append((a, slim(el)))
+                        progs.setdefault(cid, []).append((a, slim(el, groups[cid])))
                 el.clear()
         found |= claimed
 
